@@ -1,103 +1,346 @@
-import Image from "next/image";
+// src/app/page.tsx
+'use client';
+
+import { useState, useEffect } from 'react';
+import dayjs, { Dayjs } from 'dayjs';
+import imageCompression from 'browser-image-compression';
+import { addItemAction, fetchItemsByDate, deleteItemsByDate, deleteItemById } from './actions';
+import {
+  Button,
+  Card,
+  CardActions,
+  CardContent,
+  CardMedia,
+  Container,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Grid2 as Grid,
+  IconButton,
+  TextField,
+  Typography,
+  CircularProgress,
+} from '@mui/material';
+import { DatePicker } from '@mui/x-date-pickers';
+import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
+import SearchIcon from '@mui/icons-material/Search';
+
+interface Item {
+  id: number;
+  image_url: string;
+  price: number;
+  date: string;
+}
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [selectedDate, setSelectedDate] = useState<Dayjs | null>(dayjs());
+  const [items, setItems] = useState<Item[]>([]);
+  const [addOpen, setAddOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteItemId, setDeleteItemId] = useState<number | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [price, setPrice] = useState('');
+  const [compressedImage, setCompressedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeletingItem, setIsDeletingItem] = useState(false);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+  const formattedDate = selectedDate ? selectedDate.format('YYYY-MM-DD') : '';
+
+  const loadItems = async () => {
+    setIsSearching(true);
+    try {
+      const { items: fetchedItems } = await fetchItemsByDate(formattedDate);
+      setItems(fetchedItems);
+    } catch (error) {
+      console.error('Search error:', error);
+      alert('Failed to load items');
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  useEffect(() => {
+    loadItems(); // Auto-load today's data
+  }, []);
+
+  const handleSearch = () => {
+    loadItems();
+  };
+
+  const handleDeleteConfirm = async () => {
+    setIsDeleting(true);
+    try {
+      const result = await deleteItemsByDate(formattedDate);
+      if (result?.success) {
+        await loadItems();
+      } else {
+        alert(result?.error || 'Delete failed');
+      }
+    } catch (error) {
+      console.error('Bulk delete error:', error);
+      alert('Failed to delete items');
+    } finally {
+      setIsDeleting(false);
+      setDeleteOpen(false);
+    }
+  };
+
+  const handleItemDeleteConfirm = async () => {
+    if (deleteItemId !== null) {
+      setIsDeletingItem(true);
+      try {
+        const result = await deleteItemById(deleteItemId);
+        if (result?.success) {
+          await loadItems();
+        } else {
+          alert(result?.error || 'Delete failed');
+        }
+      } catch (error) {
+        console.error('Item delete error:', error);
+        alert('Failed to delete item');
+      } finally {
+        setIsDeletingItem(false);
+        setDeleteItemId(null);
+      }
+    }
+  };
+
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      try {
+        const options = { maxSizeMB: 1, maxWidthOrHeight: 1920 };
+        const compressedFile = await imageCompression(file, options);
+        setCompressedImage(compressedFile);
+        const previewUrl = URL.createObjectURL(compressedFile);
+        setImagePreview(previewUrl);
+      } catch (error) {
+        console.error('Compression error:', error);
+        alert('Failed to compress image. Try a smaller file.');
+      }
+    }
+  };
+
+  const handleAddSubmit = async () => {
+    if (!compressedImage || !price) {
+      alert('Please add an image and price');
+      return;
+    }
+    setUploading(true);
+    setSuccess(false);
+    const formData = new FormData();
+    formData.append('image', compressedImage);
+    formData.append('price', price);
+    try {
+      const result = await addItemAction(formData);
+      if (result?.success) {
+        setSuccess(true);
+        setAddOpen(false);
+        setCompressedImage(null);
+        setImagePreview(null);
+        setPrice('');
+        await loadItems();
+      } else {
+        alert(result?.error || 'Add failed');
+      }
+    } catch (error) {
+      console.error('Add error:', error);
+      alert('Failed to add item');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleImageClick = (url: string) => {
+    setPreviewUrl(url);
+    setPreviewOpen(true);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (imagePreview) URL.revokeObjectURL(imagePreview);
+    };
+  }, [imagePreview]);
+
+  return (
+    <Container maxWidth="md" sx={{ py: 4 }}>
+      <Typography variant="h4" gutterBottom>
+        Inventory App
+      </Typography>
+
+      <Grid container spacing={2} alignItems="center" sx={{ mb: 4 }}>
+        <Grid size={{ xs: 12, sm: 6 }}>
+          <DatePicker
+            label="Select Date"
+            value={selectedDate}
+            onChange={(newValue) => setSelectedDate(newValue)}
+            slotProps={{ textField: { fullWidth: true } }}
+          />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6 }}>
+          <Button
+            variant="contained"
+            startIcon={isSearching ? <CircularProgress size={20} color="inherit" /> : <SearchIcon />}
+            onClick={handleSearch}
+            disabled={isSearching}
+            fullWidth
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
+            {isSearching ? 'Searching...' : 'Search'}
+          </Button>
+        </Grid>
+        <Grid size={{ xs: 6 }}>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<AddIcon />}
+            onClick={() => setAddOpen(true)}
+            disabled={uploading}
+            fullWidth
+          >
+            Add
+          </Button>
+        </Grid>
+        <Grid size={{ xs: 6 }}>
+          <Button
+            variant="contained"
+            color="secondary"
+            startIcon={isDeleting ? <CircularProgress size={20} color="inherit" /> : <DeleteIcon />}
+            onClick={() => setDeleteOpen(true)}
+            disabled={items.length === 0 || isDeleting}
+            fullWidth
+          >
+            {isDeleting ? 'Deleting...' : 'Delete'}
+          </Button>
+        </Grid>
+      </Grid>
+
+      <Grid container spacing={2}>
+        {items.map((item) => (
+          <Grid size={{ xs: 12, sm: 6, md: 4 }} key={item.id}>
+            <Card>
+              <CardMedia
+                component="img"
+                height="140"
+                image={item.image_url}
+                alt="Item"
+                onClick={() => handleImageClick(item.image_url)}
+                sx={{ cursor: 'pointer' }}
+              />
+              <CardContent>
+                <Typography>Price: ${item.price}</Typography>
+                <Typography>Date: {new Date(item.date).toLocaleDateString()}</Typography>
+              </CardContent>
+              <CardActions>
+                <IconButton
+                  onClick={() => setDeleteItemId(item.id)}
+                  color="secondary"
+                  disabled={isDeletingItem}
+                >
+                  {isDeletingItem && deleteItemId === item.id ? (
+                    <CircularProgress size={20} />
+                  ) : (
+                    <DeleteIcon />
+                  )}
+                </IconButton>
+              </CardActions>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
+
+      <Dialog open={addOpen} onClose={() => setAddOpen(false)} disableRestoreFocus={true}>
+        <DialogTitle>Add Item</DialogTitle>
+        <DialogContent>
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleImageChange}
+            style={{ marginBottom: '16px' }}
+            disabled={uploading}
+          />
+          {imagePreview && (
+            <img
+              src={imagePreview}
+              alt="Preview"
+              style={{ width: '100%', marginBottom: '16px' }}
             />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+          )}
+          <TextField
+            label="Enter price"
+            type="number"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            fullWidth
+            disabled={uploading}
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+          {success && <Typography color="success">Item added!</Typography>}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddOpen(false)} disabled={uploading}>
+            Cancel
+          </Button>
+          <Button onClick={handleAddSubmit} disabled={uploading}>
+            {uploading ? <CircularProgress size={20} /> : 'Add'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} disableRestoreFocus={true}>
+        <DialogTitle>Confirm Delete</DialogTitle>
+        <DialogContent>
+          <Typography>Delete all items for {formattedDate}?</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteOpen(false)} disabled={isDeleting}>
+            Cancel
+          </Button>
+          <Button color="secondary" onClick={handleDeleteConfirm} disabled={isDeleting}>
+            {isDeleting ? <CircularProgress size={20} /> : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={deleteItemId !== null}
+        onClose={() => setDeleteItemId(null)}
+        disableRestoreFocus={true}
+      >
+        <DialogTitle>Confirm Delete</DialogTitle>
+        <DialogContent>
+          <Typography>Delete this item?</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteItemId(null)} disabled={isDeletingItem}>
+            Cancel
+          </Button>
+          <Button color="secondary" onClick={handleItemDeleteConfirm} disabled={isDeletingItem}>
+            {isDeletingItem ? <CircularProgress size={20} /> : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        disableRestoreFocus={true}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogContent>
+          <img src={previewUrl} alt="Full Preview" style={{ width: '100%' }} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPreviewOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+    </Container>
   );
 }
